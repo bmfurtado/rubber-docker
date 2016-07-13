@@ -18,6 +18,7 @@ import uuid
 
 import click
 import os
+import stat
 import traceback
 
 
@@ -42,7 +43,7 @@ def create_container_root(image_name, image_dir, container_id, container_dir):
         # Fun fact: tar files may contain *nix devices! *facepalm*
         members = [m for m in t.getmembers()
                    if m.type not in (tarfile.CHRTYPE, tarfile.BLKTYPE)]
-        t.extractall(image_root, members=members)
+        t.extractall(container_root, members=members)
 
     return container_root
 
@@ -64,9 +65,12 @@ def contain(command, image_name, image_dir, container_id, container_dir):
     #   HINT 2: the linux module includes both functions and constants!
     #           e.g. linux.CLONE_NEWNS
 
+    linux.unshare(linux.CLONE_NEWNS)
+
     # TODO: remember shared subtrees?
     # (https://www.kernel.org/doc/Documentation/filesystems/sharedsubtree.txt)
     # Make / a private mount to avoid littering our host mount table.
+    linux.mount(None, '/', None, linux.MS_PRIVATE | linux.MS_REC, None)
 
     # Create mounts (/proc, /sys, /dev) under new_root
     linux.mount('proc', os.path.join(new_root, 'proc'), 'proc', 0, '')
@@ -81,7 +85,14 @@ def contain(command, image_name, image_dir, container_id, container_dir):
     for i, dev in enumerate(['stdin', 'stdout', 'stderr']):
         os.symlink('/proc/self/fd/%d' % i, os.path.join(new_root, 'dev', dev))
 
-    # TODO: add more devices (e.g. null, zero, random, urandom) using os.mknod.
+    DEVICES = {'null': (stat.S_IFCHR, 1, 3), 'zero': (stat.S_IFCHR, 1, 5),
+               'random': (stat.S_IFCHR, 1, 8), 'urandom': (stat.S_IFCHR, 1, 9),
+               'console': (stat.S_IFCHR, 136, 1), 'tty': (stat.S_IFCHR, 5, 0),
+               'full': (stat.S_IFCHR, 1, 7)}
+
+    for device, (dev_type, major, minor) in DEVICES.iteritems():
+        os.mknod(os.path.join(new_root, 'dev', device), 0666 | dev_type,
+                 os.makedev(major, minor))
 
     os.chroot(new_root)
 
