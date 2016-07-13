@@ -97,11 +97,14 @@ def _create_mounts(new_root):
 
 
 def contain(command, image_name, image_dir, container_id, container_dir):
-    linux.unshare(linux.CLONE_NEWNS)  # create a new mount namespace
+    linux.unshare(linux.CLONE_NEWNS | linux.CLONE_NEWUTS)  # create a new mount namespace
     # TODO: switch to a new UTS namespace, change hostname to container_id
     # HINT: use linux.sethostname()
 
     linux.mount(None, '/', None, linux.MS_PRIVATE | linux.MS_REC, None)
+
+    # Set hostname
+    linux.sethostname(container_id)
 
     new_root = create_container_root(
         image_name, image_dir, container_id, container_dir)
